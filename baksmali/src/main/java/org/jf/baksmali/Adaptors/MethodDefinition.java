@@ -33,14 +33,10 @@ import com.google.common.collect.Lists;
 import org.jf.baksmali.Adaptors.Debug.DebugMethodItem;
 import org.jf.baksmali.Adaptors.Format.InstructionMethodItemFactory;
 import org.jf.baksmali.BaksmaliOptions;
-import org.jf.dexlib2.AccessFlags;
-import org.jf.dexlib2.Format;
-import org.jf.dexlib2.Opcode;
-import org.jf.dexlib2.ReferenceType;
+import org.jf.dexlib2.*;
 import org.jf.dexlib2.analysis.AnalysisException;
 import org.jf.dexlib2.analysis.AnalyzedInstruction;
 import org.jf.dexlib2.analysis.MethodAnalyzer;
-import org.jf.dexlib2.dexbacked.DexBackedDexFile.InvalidItemIndex;
 import org.jf.dexlib2.iface.*;
 import org.jf.dexlib2.iface.debug.DebugItem;
 import org.jf.dexlib2.iface.instruction.Instruction;
@@ -48,6 +44,7 @@ import org.jf.dexlib2.iface.instruction.OffsetInstruction;
 import org.jf.dexlib2.iface.instruction.ReferenceInstruction;
 import org.jf.dexlib2.iface.instruction.formats.Instruction31t;
 import org.jf.dexlib2.iface.reference.MethodReference;
+import org.jf.dexlib2.iface.reference.Reference;
 import org.jf.dexlib2.immutable.instruction.ImmutableInstruction31t;
 import org.jf.dexlib2.util.InstructionOffsetMap;
 import org.jf.dexlib2.util.InstructionOffsetMap.InvalidInstructionOffset;
@@ -165,7 +162,7 @@ public class MethodDefinition {
     public static void writeEmptyMethodTo(IndentingWriter writer, Method method,
                                           BaksmaliOptions options) throws IOException {
         writer.write(".method ");
-        writeAccessFlags(writer, method.getAccessFlags());
+        writeAccessFlagsAndRestrictions(writer, method.getAccessFlags(), method.getHiddenApiRestrictions());
         writer.write(method.getName());
         writer.write("(");
         ImmutableList<MethodParameter> methodParameters = ImmutableList.copyOf(method.getParameters());
@@ -196,7 +193,7 @@ public class MethodDefinition {
         }
 
         writer.write(".method ");
-        writeAccessFlags(writer, method.getAccessFlags());
+        writeAccessFlagsAndRestrictions(writer, method.getAccessFlags(), method.getHiddenApiRestrictions());
         writer.write(method.getName());
         writer.write("(");
         for (MethodParameter parameter: methodParameters) {
@@ -303,10 +300,15 @@ public class MethodDefinition {
         }
     }
 
-    private static void writeAccessFlags(IndentingWriter writer, int accessFlags)
+    private static void writeAccessFlagsAndRestrictions(
+            IndentingWriter writer, int accessFlags, Set<HiddenApiRestriction> hiddenApiRestrictions)
             throws IOException {
         for (AccessFlags accessFlag: AccessFlags.getAccessFlagsForMethod(accessFlags)) {
             writer.write(accessFlag.toString());
+            writer.write(' ');
+        }
+        for (HiddenApiRestriction hiddenApiRestriction : hiddenApiRestrictions) {
+            writer.write(hiddenApiRestriction.toString());
             writer.write(' ');
         }
     }
@@ -437,21 +439,21 @@ public class MethodDefinition {
                 Opcode opcode = instruction.getOpcode();
 
                 if (opcode.referenceType == ReferenceType.METHOD) {
-                    MethodReference methodReference = null;
-                    try {
-                        methodReference = (MethodReference)((ReferenceInstruction)instruction).getReference();
-                    } catch (InvalidItemIndex ex) {
-                        // just ignore it for now. We'll deal with it later, when processing the instructions
-                        // themselves
-                    }
+                    MethodReference methodReference =
+                            (MethodReference)((ReferenceInstruction)instruction).getReference();
 
-                    if (methodReference != null &&
-                            SyntheticAccessorResolver.looksLikeSyntheticAccessor(methodReference.getName())) {
-                        AccessedMember accessedMember =
-                                classDef.options.syntheticAccessorResolver.getAccessedMember(methodReference);
-                        if (accessedMember != null) {
-                            methodItems.add(new SyntheticAccessCommentMethodItem(accessedMember, currentCodeAddress));
+                    try {
+                        methodReference.validateReference();
+
+                        if (SyntheticAccessorResolver.looksLikeSyntheticAccessor(methodReference.getName())) {
+                            AccessedMember accessedMember =
+                                    classDef.options.syntheticAccessorResolver.getAccessedMember(methodReference);
+                            if (accessedMember != null) {
+                                methodItems.add(new SyntheticAccessCommentMethodItem(accessedMember, currentCodeAddress));
+                            }
                         }
+                    } catch (Reference.InvalidReferenceException e) {
+                        // Just ignore for now. We'll deal with it when processing the instruction
                     }
                 }
             }

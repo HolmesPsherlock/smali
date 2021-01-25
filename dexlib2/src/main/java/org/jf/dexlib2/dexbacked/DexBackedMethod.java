@@ -33,6 +33,7 @@ package org.jf.dexlib2.dexbacked;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.jf.dexlib2.HiddenApiRestriction;
 import org.jf.dexlib2.base.reference.BaseMethodReference;
 import org.jf.dexlib2.dexbacked.raw.MethodIdItem;
 import org.jf.dexlib2.dexbacked.raw.ProtoIdItem;
@@ -43,12 +44,12 @@ import org.jf.dexlib2.dexbacked.util.FixedSizeList;
 import org.jf.dexlib2.dexbacked.util.ParameterIterator;
 import org.jf.dexlib2.iface.Annotation;
 import org.jf.dexlib2.iface.Method;
-import org.jf.dexlib2.iface.MethodImplementation;
 import org.jf.dexlib2.iface.MethodParameter;
 import org.jf.util.AbstractForwardSequentialList;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -62,6 +63,7 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
     private final int codeOffset;
     private final int parameterAnnotationSetListOffset;
     private final int methodAnnotationSetOffset;
+    private final int hiddenApiRestrictions;
 
     public final int methodIndex;
     private final int startOffset;
@@ -70,10 +72,12 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
     private int protoIdItemOffset;
     private int parametersOffset = -1;
 
-    public DexBackedMethod(@Nonnull DexReader reader,
+    public DexBackedMethod(@Nonnull DexBackedDexFile dexFile,
+                           @Nonnull DexReader reader,
                            @Nonnull DexBackedClassDef classDef,
-                           int previousMethodIndex) {
-        this.dexFile = reader.dexBuf;
+                           int previousMethodIndex,
+                           int hiddenApiRestrictions) {
+        this.dexFile = dexFile;
         this.classDef = classDef;
         startOffset = reader.getOffset();
 
@@ -83,17 +87,20 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
         this.methodIndex = methodIndexDiff + previousMethodIndex;
         this.accessFlags = reader.readSmallUleb128();
         this.codeOffset = reader.readSmallUleb128();
+        this.hiddenApiRestrictions = hiddenApiRestrictions;
 
         this.methodAnnotationSetOffset = 0;
         this.parameterAnnotationSetListOffset = 0;
     }
 
-    public DexBackedMethod(@Nonnull DexReader reader,
+    public DexBackedMethod(@Nonnull DexBackedDexFile dexFile,
+                           @Nonnull DexReader reader,
                            @Nonnull DexBackedClassDef classDef,
                            int previousMethodIndex,
                            @Nonnull AnnotationsDirectory.AnnotationIterator methodAnnotationIterator,
-                           @Nonnull AnnotationsDirectory.AnnotationIterator paramaterAnnotationIterator) {
-        this.dexFile = reader.dexBuf;
+                           @Nonnull AnnotationsDirectory.AnnotationIterator paramaterAnnotationIterator,
+                           int hiddenApiRestrictions) {
+        this.dexFile = dexFile;
         this.classDef = classDef;
         startOffset = reader.getOffset();
 
@@ -103,6 +110,7 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
         this.methodIndex = methodIndexDiff + previousMethodIndex;
         this.accessFlags = reader.readSmallUleb128();
         this.codeOffset = reader.readSmallUleb128();
+        this.hiddenApiRestrictions = hiddenApiRestrictions;
 
         this.methodAnnotationSetOffset = methodAnnotationIterator.seekTo(methodIndex);
         this.parameterAnnotationSetListOffset = paramaterAnnotationIterator.seekTo(methodIndex);
@@ -115,13 +123,15 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
     @Nonnull
     @Override
     public String getName() {
-        return dexFile.getString(dexFile.readSmallUint(getMethodIdItemOffset() + MethodIdItem.NAME_OFFSET));
+        return dexFile.getStringSection().get(
+                dexFile.getBuffer().readSmallUint(getMethodIdItemOffset() + MethodIdItem.NAME_OFFSET));
     }
 
     @Nonnull
     @Override
     public String getReturnType() {
-        return dexFile.getType(dexFile.readSmallUint(getProtoIdItemOffset() + ProtoIdItem.RETURN_TYPE_OFFSET));
+        return dexFile.getTypeSection().get(
+                dexFile.getBuffer().readSmallUint(getProtoIdItemOffset() + ProtoIdItem.RETURN_TYPE_OFFSET));
     }
 
     @Nonnull
@@ -165,13 +175,13 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
     public List<String> getParameterTypes() {
         final int parametersOffset = getParametersOffset();
         if (parametersOffset > 0) {
-            final int parameterCount = dexFile.readSmallUint(parametersOffset + TypeListItem.SIZE_OFFSET);
+            final int parameterCount = dexFile.getDataBuffer().readSmallUint(parametersOffset + TypeListItem.SIZE_OFFSET);
             final int paramListStart = parametersOffset + TypeListItem.LIST_OFFSET;
             return new FixedSizeList<String>() {
                 @Nonnull
                 @Override
                 public String readItem(final int index) {
-                    return dexFile.getType(dexFile.readUshort(paramListStart + 2*index));
+                    return dexFile.getTypeSection().get(dexFile.getDataBuffer().readUshort(paramListStart + 2*index));
                 }
                 @Override public int size() { return parameterCount; }
             };
@@ -185,33 +195,44 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
         return AnnotationsDirectory.getAnnotations(dexFile, methodAnnotationSetOffset);
     }
 
+    @Nonnull
+    @Override
+    public Set<HiddenApiRestriction> getHiddenApiRestrictions() {
+        if (hiddenApiRestrictions == DexBackedClassDef.NO_HIDDEN_API_RESTRICTIONS) {
+            return ImmutableSet.of();
+        } else {
+            return EnumSet.copyOf(HiddenApiRestriction.getAllFlags(hiddenApiRestrictions));
+        }
+    }
+
     @Nullable
     @Override
     public DexBackedMethodImplementation getImplementation() {
         if (codeOffset > 0) {
-            return new DexBackedMethodImplementation(dexFile, this, codeOffset);
+            return dexFile.createMethodImplementation(dexFile, this, codeOffset);
         }
         return null;
     }
 
     private int getMethodIdItemOffset() {
         if (methodIdItemOffset == 0) {
-            methodIdItemOffset = dexFile.getMethodIdItemOffset(methodIndex);
+            methodIdItemOffset = dexFile.getMethodSection().getOffset(methodIndex);
         }
         return methodIdItemOffset;
     }
 
     private int getProtoIdItemOffset() {
         if (protoIdItemOffset == 0) {
-            int protoIndex = dexFile.readUshort(getMethodIdItemOffset() + MethodIdItem.PROTO_OFFSET);
-            protoIdItemOffset = dexFile.getProtoIdItemOffset(protoIndex);
+            int protoIndex = dexFile.getBuffer().readUshort(getMethodIdItemOffset() + MethodIdItem.PROTO_OFFSET);
+            protoIdItemOffset = dexFile.getProtoSection().getOffset(protoIndex);
         }
         return protoIdItemOffset;
     }
 
     private int getParametersOffset() {
         if (parametersOffset == -1) {
-            parametersOffset = dexFile.readSmallUint(getProtoIdItemOffset() + ProtoIdItem.PARAMETERS_OFFSET);
+            parametersOffset = dexFile.getBuffer().readSmallUint(
+                    getProtoIdItemOffset() + ProtoIdItem.PARAMETERS_OFFSET);
         }
         return parametersOffset;
     }
@@ -241,7 +262,7 @@ public class DexBackedMethod extends BaseMethodReference implements Method {
     public int getSize() {
         int size = 0;
 
-        DexReader reader = dexFile.readerAt(startOffset);
+        DexReader reader = dexFile.getDataBuffer().readerAt(startOffset);
         reader.readLargeUleb128(); //method_idx_diff
         reader.readSmallUleb128(); //access_flags
         reader.readSmallUleb128(); //code_off

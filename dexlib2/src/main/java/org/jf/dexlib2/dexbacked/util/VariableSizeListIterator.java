@@ -31,7 +31,7 @@
 
 package org.jf.dexlib2.dexbacked.util;
 
-import org.jf.dexlib2.dexbacked.DexBackedDexFile;
+import org.jf.dexlib2.dexbacked.DexBuffer;
 import org.jf.dexlib2.dexbacked.DexReader;
 
 import javax.annotation.Nonnull;
@@ -39,14 +39,14 @@ import java.util.ListIterator;
 import java.util.NoSuchElementException;
 
 public abstract class VariableSizeListIterator<T> implements ListIterator<T> {
-    @Nonnull private DexReader reader;
+    @Nonnull private DexReader<? extends DexBuffer> reader;
     protected final int size;
     private final int startOffset;
 
     private int index;
 
-    protected VariableSizeListIterator(@Nonnull DexBackedDexFile dexFile, int offset, int size) {
-        this.reader = dexFile.readerAt(offset);
+    protected VariableSizeListIterator(@Nonnull DexBuffer buffer, int offset, int size) {
+        this.reader = buffer.readerAt(offset);
         this.startOffset = offset;
         this.size = size;
     }
@@ -58,7 +58,7 @@ public abstract class VariableSizeListIterator<T> implements ListIterator<T> {
      * @param index The index of the item being read. This is guaranteed to be less than {@code size}
      * @return The item that was read
      */
-    protected abstract T readNextItem(@Nonnull DexReader reader, int index);
+    protected abstract T readNextItem(@Nonnull DexReader<? extends DexBuffer> reader, int index);
 
     public int getReaderOffset() {
         return reader.getOffset();

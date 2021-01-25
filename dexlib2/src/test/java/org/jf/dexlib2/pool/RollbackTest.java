@@ -35,8 +35,8 @@ import com.google.common.collect.Lists;
 import org.jf.dexlib2.AccessFlags;
 import org.jf.dexlib2.AnnotationVisibility;
 import org.jf.dexlib2.Opcodes;
+import org.jf.dexlib2.dexbacked.DexBackedDexFile;
 import org.jf.dexlib2.dexbacked.raw.MapItem;
-import org.jf.dexlib2.dexbacked.raw.RawDexFile;
 import org.jf.dexlib2.iface.ClassDef;
 import org.jf.dexlib2.iface.Field;
 import org.jf.dexlib2.iface.Method;
@@ -56,26 +56,26 @@ public class RollbackTest {
         ClassDef class1 = new ImmutableClassDef("Lcls1;", AccessFlags.PUBLIC.getValue(), "Ljava/lang/Object;", null, null,
                 Lists.newArrayList(new ImmutableAnnotation(AnnotationVisibility.RUNTIME, "Lannotation;", null)),
                 Lists.<Field>newArrayList(
-                        new ImmutableField("Lcls1;", "field1", "I", AccessFlags.PUBLIC.getValue(), null, null)
+                        new ImmutableField("Lcls1;", "field1", "I", AccessFlags.PUBLIC.getValue(), null, null, null)
                 ),
                 Lists.<Method>newArrayList(
                         new ImmutableMethod("Lcls1", "method1",
                                 Lists.<MethodParameter>newArrayList(new ImmutableMethodParameter("L", null, null)), "V",
-                                AccessFlags.PUBLIC.getValue(), null, null))
+                                AccessFlags.PUBLIC.getValue(), null, null, null))
                 );
 
         ClassDef class2 = new ImmutableClassDef("Lcls2;", AccessFlags.PUBLIC.getValue(), "Ljava/lang/Object;", null, null,
                 Lists.newArrayList(new ImmutableAnnotation(AnnotationVisibility.RUNTIME, "Lannotation2;", null)),
                 Lists.<Field>newArrayList(
-                        new ImmutableField("Lcls2;", "field2", "D", AccessFlags.PUBLIC.getValue(), null, null)
+                        new ImmutableField("Lcls2;", "field2", "D", AccessFlags.PUBLIC.getValue(), null, null, null)
                 ),
                 Lists.<Method>newArrayList(
                         new ImmutableMethod("Lcls2;", "method2",
                                 Lists.<MethodParameter>newArrayList(new ImmutableMethodParameter("D", null, null)), "V",
-                                AccessFlags.PUBLIC.getValue(), null, null))
+                                AccessFlags.PUBLIC.getValue(), null, null, null))
         );
 
-        RawDexFile dexFile1;
+        DexBackedDexFile dexFile1;
         {
             MemoryDataStore dataStore = new MemoryDataStore();
             DexPool dexPool = new DexPool(Opcodes.getDefault());
@@ -84,16 +84,16 @@ public class RollbackTest {
             dexPool.internClass(class2);
             dexPool.reset();
             dexPool.writeTo(dataStore);
-            dexFile1 = new RawDexFile(Opcodes.getDefault(), dataStore.getBuffer());
+            dexFile1 = new DexBackedDexFile(Opcodes.getDefault(), dataStore.getBuffer());
         }
 
-        RawDexFile dexFile2;
+        DexBackedDexFile dexFile2;
         {
             MemoryDataStore dataStore = new MemoryDataStore();
             DexPool dexPool = new DexPool(Opcodes.getDefault());
             dexPool.internClass(class1);
             dexPool.writeTo(dataStore);
-            dexFile2 = new RawDexFile(Opcodes.getDefault(), dataStore.getBuffer());
+            dexFile2 = new DexBackedDexFile(Opcodes.getDefault(), dataStore.getBuffer());
         }
 
         List<MapItem> mapItems1 = dexFile1.getMapItems();

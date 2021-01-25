@@ -63,8 +63,10 @@ public class VersionMap {
     }
 
     public static int mapArtVersionToApi(int artVersion) {
-        // 144 is the current version in the master branch of AOSP as of 2018-05-22
-        if (artVersion >= 144) {
+        if (artVersion >= 170) {
+            return 29;
+        }
+        if (artVersion >= 138) {
             return 28;
         }
         if (artVersion >= 131) {
@@ -110,9 +112,13 @@ public class VersionMap {
                 return 124;
             case 27:
                 return 131;
+            case 28:
+                return 138;
+            case 29:
+                return 170;
             default:
-                // 144 is the current version in the master branch of AOSP as of 2018-05-22
-                return 144;
+                // 178 is the current version in the master branch of AOSP as of 2020-02-02
+                return 178;
         }
     }
 }

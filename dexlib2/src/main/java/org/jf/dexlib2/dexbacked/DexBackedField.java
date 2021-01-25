@@ -31,6 +31,8 @@
 
 package org.jf.dexlib2.dexbacked;
 
+import com.google.common.collect.ImmutableSet;
+import org.jf.dexlib2.HiddenApiRestriction;
 import org.jf.dexlib2.base.reference.BaseFieldReference;
 import org.jf.dexlib2.dexbacked.raw.FieldIdItem;
 import org.jf.dexlib2.dexbacked.reference.DexBackedFieldReference;
@@ -43,6 +45,7 @@ import org.jf.dexlib2.iface.value.EncodedValue;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.EnumSet;
 import java.util.Set;
 
 public class DexBackedField extends BaseFieldReference implements Field {
@@ -56,15 +59,18 @@ public class DexBackedField extends BaseFieldReference implements Field {
     public final int fieldIndex;
     private final int startOffset;
     private final int initialValueOffset;
+    private final int hiddenApiRestrictions;
 
     private int fieldIdItemOffset;
 
-    public DexBackedField(@Nonnull DexReader reader,
+    public DexBackedField(@Nonnull DexBackedDexFile dexFile,
+                          @Nonnull DexReader reader,
                           @Nonnull DexBackedClassDef classDef,
                           int previousFieldIndex,
                           @Nonnull EncodedArrayItemIterator staticInitialValueIterator,
-                          @Nonnull AnnotationsDirectory.AnnotationIterator annotationIterator) {
-        this.dexFile = reader.dexBuf;
+                          @Nonnull AnnotationsDirectory.AnnotationIterator annotationIterator,
+                          int hiddenApiRestrictions) {
+        this.dexFile = dexFile;
         this.classDef = classDef;
 
         // large values may be used for the index delta, which cause the cumulative index to overflow upon
@@ -77,13 +83,16 @@ public class DexBackedField extends BaseFieldReference implements Field {
         this.annotationSetOffset = annotationIterator.seekTo(fieldIndex);
         initialValueOffset = staticInitialValueIterator.getReaderOffset();
         this.initialValue = staticInitialValueIterator.getNextOrNull();
+        this.hiddenApiRestrictions = hiddenApiRestrictions;
     }
 
-    public DexBackedField(@Nonnull DexReader reader,
+    public DexBackedField(@Nonnull DexBackedDexFile dexFile,
+                          @Nonnull DexReader reader,
                           @Nonnull DexBackedClassDef classDef,
                           int previousFieldIndex,
-                          @Nonnull AnnotationsDirectory.AnnotationIterator annotationIterator) {
-        this.dexFile = reader.dexBuf;
+                          @Nonnull AnnotationsDirectory.AnnotationIterator annotationIterator,
+                          int hiddenApiRestrictions) {
+        this.dexFile = dexFile;
         this.classDef = classDef;
 
         // large values may be used for the index delta, which cause the cumulative index to overflow upon
@@ -96,18 +105,21 @@ public class DexBackedField extends BaseFieldReference implements Field {
         this.annotationSetOffset = annotationIterator.seekTo(fieldIndex);
         initialValueOffset = 0;
         this.initialValue = null;
+        this.hiddenApiRestrictions = hiddenApiRestrictions;
     }
 
     @Nonnull
     @Override
     public String getName() {
-        return dexFile.getString(dexFile.readSmallUint(getFieldIdItemOffset() + FieldIdItem.NAME_OFFSET));
+        return dexFile.getStringSection().get(
+                dexFile.getBuffer().readSmallUint(getFieldIdItemOffset() + FieldIdItem.NAME_OFFSET));
     }
 
     @Nonnull
     @Override
     public String getType() {
-        return dexFile.getType(dexFile.readUshort(getFieldIdItemOffset() + FieldIdItem.TYPE_OFFSET));
+        return dexFile.getTypeSection().get(
+                dexFile.getBuffer().readUshort(getFieldIdItemOffset() + FieldIdItem.TYPE_OFFSET));
     }
 
     @Nonnull @Override public String getDefiningClass() { return classDef.getType(); }
@@ -118,6 +130,16 @@ public class DexBackedField extends BaseFieldReference implements Field {
     @Override
     public Set<? extends DexBackedAnnotation> getAnnotations() {
         return AnnotationsDirectory.getAnnotations(dexFile, annotationSetOffset);
+    }
+
+    @Nonnull
+    @Override
+    public Set<HiddenApiRestriction> getHiddenApiRestrictions() {
+        if (hiddenApiRestrictions == DexBackedClassDef.NO_HIDDEN_API_RESTRICTIONS) {
+            return ImmutableSet.of();
+        } else {
+            return EnumSet.copyOf(HiddenApiRestriction.getAllFlags(hiddenApiRestrictions));
+        }
     }
 
     /**
@@ -135,7 +157,7 @@ public class DexBackedField extends BaseFieldReference implements Field {
 
     private int getFieldIdItemOffset() {
         if (fieldIdItemOffset == 0) {
-            fieldIdItemOffset = dexFile.getFieldIdItemOffset(fieldIndex);
+            fieldIdItemOffset = dexFile.getFieldSection().getOffset(fieldIndex);
         }
         return fieldIdItemOffset;
     }
@@ -150,7 +172,7 @@ public class DexBackedField extends BaseFieldReference implements Field {
      */
     public int getSize() {
         int size = 0;
-        DexReader reader = dexFile.readerAt(startOffset);
+        DexReader reader = dexFile.getBuffer().readerAt(startOffset);
         reader.readLargeUleb128(); //field_idx_diff
         reader.readSmallUleb128(); //access_flags
         size += reader.getOffset() - startOffset;
